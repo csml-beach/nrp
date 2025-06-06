@@ -14,7 +14,7 @@ spec:
           runAsUser: 0  # Run as root to ensure PVC write access
         env:
         - name: SCRIPT_NAME
-          value: "gpu_test.py"
+          value: "gpu-test.py"
         command: ["sh", "-c"]
         args:
           - |
