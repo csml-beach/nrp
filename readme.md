@@ -30,6 +30,23 @@ This repository contains Kubernetes job definitions and Python scripts for runni
    /mnt/data/output_gpu_test.py.txt
    ```
 
+## PyTorch & Data Science Environment
+
+We have set up a ready-to-use PyTorch and Data Science environment utilizing the NRP scientific images.
+
+- **Job Template:** `jobs/pytorch-gpu-run.yaml`
+- **Image:** `gitlab-registry.nrp-nautilus.io/nrp/scientific-images/python`
+- **Test Script:** `scripts/pytorch-test.py`
+
+### How to use:
+1. Ensure your script is in the `scripts/` directory and pushed to GitHub.
+2. Update the `SCRIPT_NAME` env var in `jobs/pytorch-gpu-run.yaml` if needed.
+3. Submit the job:
+   ```bash
+   kubectl apply -f jobs/pytorch-gpu-run.yaml -n csml-beach
+   ```
+4. Check the results in `/mnt/data/output_pytorch-test.py.txt` via the `debug-shell`.
+
 ## Troubleshooting & Tips
 
 ### Authentication (OIDC)

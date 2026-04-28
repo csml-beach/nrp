@@ -1,0 +1,42 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pytorch-gpu-run
+  namespace: csml-beach
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      containers:
+      - name: pytorch-test
+        image: gitlab-registry.nrp-nautilus.io/nrp/scientific-images/python
+        securityContext:
+          runAsUser: 0
+        env:
+        - name: SCRIPT_NAME
+          value: "pytorch-test.py"
+        command: ["sh", "-c"]
+        args:
+          - |
+            echo "Starting PyTorch GPU test..." && \
+            git clone https://github.com/csml-beach/nrp.git /tmp/repo && \
+            python /tmp/repo/scripts/$SCRIPT_NAME > /mnt/data/output_${SCRIPT_NAME}.txt && \
+            echo "PyTorch test complete."
+        volumeMounts:
+        - name: csml-beach-storage
+          mountPath: /mnt/data
+        resources:
+          limits:
+            memory: 8Gi
+            cpu: "2"
+            nvidia.com/gpu: "1"
+          requests:
+            memory: 8Gi
+            cpu: "2"
+            nvidia.com/gpu: "1"
+      restartPolicy: Never
+      volumes:
+      - name: csml-beach-storage
+        persistentVolumeClaim:
+          claimName: csml-beach-pvc
+  backoffLimit: 1
