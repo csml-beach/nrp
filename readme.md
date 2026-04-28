@@ -35,7 +35,7 @@ This repository contains Kubernetes job definitions and Python scripts for runni
 We have set up a ready-to-use PyTorch and Data Science environment utilizing the NRP scientific images.
 
 - **Job Template:** `jobs/pytorch-gpu-run.yaml`
-- **Image:** `gitlab-registry.nrp-nautilus.io/nrp/scientific-images/python`
+- **Image:** `gitlab-registry.nrp-nautilus.io/jupyter-stack/prp-pytorch2`
 - **Test Script:** `scripts/pytorch-test.py`
 
 ### How to use:
