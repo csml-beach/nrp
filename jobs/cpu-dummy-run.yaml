@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cpu-dummy-run
+  namespace: csml-beach
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      containers:
+      - name: cpu-dummy
+        image: gitlab-registry.nrp-nautilus.io/prp/jupyter-stack/prp
+        securityContext:
+          runAsUser: 0
+        command: ["sh", "-c"]
+        args:
+          - |
+            echo "Starting dummy CPU run..." && \
+            git clone https://github.com/csml-beach/nrp.git /tmp/repo && \
+            echo "Repo cloned successfully. System info:" && \
+            uname -a && \
+            lscpu && \
+            echo "Dummy run complete." > /mnt/data/output_cpu_dummy.txt
+        volumeMounts:
+        - name: csml-beach-storage
+          mountPath: /mnt/data
+        resources:
+          limits:
+            memory: 2Gi
+            cpu: "1"
+          requests:
+            memory: 2Gi
+            cpu: "1"
+      restartPolicy: Never
+      volumes:
+      - name: csml-beach-storage
+        persistentVolumeClaim:
+          claimName: csml-beach-pvc
+  backoffLimit: 1

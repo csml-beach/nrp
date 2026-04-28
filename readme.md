@@ -30,7 +30,37 @@ This repository contains Kubernetes job definitions and Python scripts for runni
    /mnt/data/output_gpu_test.py.txt
    ```
 
-## Notes
-- Ensure your user has proper RBAC access to your namespace
-- The container runs as root to allow writing to mounted volumes
-- You can change the script being executed by modifying the `SCRIPT_NAME` env var in the YAML
+## Troubleshooting & Tips
+
+### Authentication (OIDC)
+Nautilus uses OIDC for authentication. If you get an `invalid_grant` error:
+1. Refresh your config from the [Nautilus Portal](https://portal.nrp-nautilus.io/).
+2. If you need to switch identities (e.g., from ORCID to CSULB), clear your sessions:
+   - [Authentik Logout](https://authentik.nrp-nautilus.io/flows/-/default/invalidation/)
+   - [CILogon Logout](https://cilogon.org/logout)
+3. Ensure you have the `kubelogin` plugin installed: `brew install int128/kubelogin/kubelogin`.
+
+### Resource Quotas & Ratios
+Nautilus enforces strict CPU/Memory limit-to-request ratios (usually 1:1 or up to 1.2).
+- **Tip:** Set `requests` equal to `limits` to ensure your pod is scheduled without being blocked by admission controllers.
+- Example:
+  ```yaml
+  resources:
+    limits:
+      cpu: "1"
+      memory: "2Gi"
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+  ```
+
+### PVC Multi-Attach Errors
+If a new job is stuck in `ContainerCreating` with a `Multi-Attach error`, it means a previous pod is still holding the volume on another node.
+1. Check for terminating pods: `kubectl get pods -n csml-beach`
+2. Force delete the stuck pod: 
+   ```bash
+   kubectl delete pod <pod-name> -n csml-beach --force --grace-period=0
+   ```
+
+### Large Images
+The default PRP container image (`gitlab-registry.nrp-nautilus.io/prp/jupyter-stack/prp`) is ~16GB. It is normal for the pod to stay in `ContainerCreating` for several minutes while the image is pulled to a new node.
