@@ -9,7 +9,7 @@ spec:
     spec:
       containers:
       - name: pytorch-test
-        image: gitlab-registry.nrp-nautilus.io/jupyter-stack/prp-pytorch2
+        image: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
         securityContext:
           runAsUser: 0
         env:
