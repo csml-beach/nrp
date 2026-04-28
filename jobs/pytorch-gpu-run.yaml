@@ -18,10 +18,16 @@ spec:
         command: ["sh", "-c"]
         args:
           - |
+            echo "Installing dependencies..." && \
+            apt-get update && apt-get install -y git && \
+            pip install pandas matplotlib && \
             echo "Starting PyTorch GPU test..." && \
+            JOB_ID=$(date +%Y%m%d_%H%M%S) && \
+            OUT_DIR="/mnt/data/results_$JOB_ID" && \
+            mkdir -p $OUT_DIR && \
             git clone https://github.com/csml-beach/nrp.git /tmp/repo && \
-            python /tmp/repo/scripts/$SCRIPT_NAME > /mnt/data/output_${SCRIPT_NAME}.txt && \
-            echo "PyTorch test complete."
+            python /tmp/repo/scripts/$SCRIPT_NAME > $OUT_DIR/output_${SCRIPT_NAME}.txt && \
+            echo "PyTorch test complete. Results in $OUT_DIR"
         volumeMounts:
         - name: csml-beach-storage
           mountPath: /mnt/data
