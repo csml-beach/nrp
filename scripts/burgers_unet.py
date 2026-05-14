@@ -94,8 +94,8 @@ class UNet1D(nn.Module):
         
         self.mid = Block1D(hidden_channels * 2, hidden_channels * 2, time_dim)
         
-        self.up1 = nn.ConvTranspose1d(hidden_channels * 2, hidden_channels, 2, stride=2)
-        self.block_up1 = Block1D(hidden_channels * 2, hidden_channels, time_dim)
+        self.up1 = nn.ConvTranspose1d(hidden_channels * 2, hidden_channels * 2, 2, stride=2)
+        self.block_up1 = Block1D(hidden_channels * 4, hidden_channels, time_dim)
         
         self.up2 = nn.ConvTranspose1d(hidden_channels, hidden_channels, 2, stride=2)
         self.block_up2 = Block1D(hidden_channels * 2, hidden_channels, time_dim)
