@@ -277,11 +277,4 @@ if __name__ == "__main__":
     os.makedirs(out_dir, exist_ok=True)
     out_file = os.path.join(out_dir, "burgers_extended_comparison.png")
     plt.savefig(out_file, dpi=150)
-    print(f"\nSaved physics flow comparison plot to '{out_file}'", flush=True)l("Physical Time (t)")
-
-    plt.tight_layout()
-    out_dir = "/mnt/data"
-    os.makedirs(out_dir, exist_ok=True)
-    out_file = os.path.join(out_dir, "burgers_autoregressive_comparison.png")
-    plt.savefig(out_file, dpi=150)
     print(f"\nSaved physics flow comparison plot to '{out_file}'", flush=True)
