@@ -227,15 +227,21 @@ if __name__ == "__main__":
     
     print("Generating Burgers' Equation Data...", flush=True)
     set_seed(42)
-    full_data = get_burgers_data(n_samples=5000, nx=NX, nt=NT, nu=0.02)
+    full_data = get_burgers_data(n_samples=15000, nx=NX, nt=NT, nu=0.02)
     
     print("\nTraining STANDARD Model (lambda=0)...", flush=True)
     set_seed(42)
-    model_std = train_autoregressive_cfm(full_data, device, n_epochs=5000, lambda_upwind=0.0)
+    model_std = train_autoregressive_cfm(full_data, device, n_epochs=20000, lambda_upwind=0.0)
     
     print("\nTraining UPWIND-REGULARIZED Model (lambda=2.0)...", flush=True)
     set_seed(42)
-    model_upwind = train_autoregressive_cfm(full_data, device, n_epochs=5000, lambda_upwind=2.0)
+    model_upwind = train_autoregressive_cfm(full_data, device, n_epochs=20000, lambda_upwind=2.0)
+    
+    print("\nSaving Models...", flush=True)
+    out_dir = "/mnt/data"
+    os.makedirs(out_dir, exist_ok=True)
+    torch.save(model_std.state_dict(), os.path.join(out_dir, "model_std_extended.pt"))
+    torch.save(model_upwind.state_dict(), os.path.join(out_dir, "model_upwind_extended.pt"))
     
     print("\nGenerating Physical Trajectories (Autoregressive)...", flush=True)
     n_eval = 4
