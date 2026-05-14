@@ -29,18 +29,18 @@ def get_burgers_data(n_samples=5000, nx=64, nt=32, nu=0.02):
     t = np.linspace(0, 1.0, nt)
     data = []
     for _ in range(n_samples):
+        # Single high-amplitude sine wave to prevent destructive interference / collapsing
         phi1 = np.random.uniform(0, 2 * np.pi)
-        phi2 = np.random.uniform(0, 2 * np.pi)
-        u0 = np.sin(x - phi1) + 0.5 * np.sin(2 * x - phi2)
+        u0 = np.sin(x - phi1)
         sol = odeint(burgers_rhs, u0, t, args=(dx, nu))
         data.append(sol)
     
     data = np.array(data)
     tensor_data = torch.tensor(data, dtype=torch.float32)
     
-    # Normalize globally
-    mean = tensor_data.mean()
-    std = tensor_data.std()
+    # Normalize per-sample to maintain contrast for all samples
+    mean = tensor_data.mean(dim=(1, 2), keepdim=True)
+    std = tensor_data.std(dim=(1, 2), keepdim=True)
     tensor_data = (tensor_data - mean) / (std + 1e-5)
     return tensor_data
 
@@ -124,8 +124,8 @@ class UNet1D(nn.Module):
         out = self.out(u2)
         return out.squeeze(1) # (B, NX)
 
-# --- 3. Training Loop ---
-def train_physics_cfm(u0, uT, device, n_epochs=5000, batch_size=256, lambda_upwind=0.0):
+# --- 3. Training Loop (Autoregressive Formulation) ---
+def train_autoregressive_cfm(full_data, device, n_epochs=5000, batch_size=256, lambda_upwind=0.0):
     model = UNet1D().to(device)
     optimizer = optim.Adam(model.parameters(), lr=5e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=1e-6)
@@ -133,23 +133,30 @@ def train_physics_cfm(u0, uT, device, n_epochs=5000, batch_size=256, lambda_upwi
     dt_upwind = 0.05 
     model.train()
     
+    n_samples, nt, nx = full_data.shape
+    
     for epoch in range(n_epochs):
-        idx = torch.randperm(u0.shape[0])[:batch_size]
-        x0_batch = u0[idx].to(device)
-        x1_batch = uT[idx].to(device)
+        # Randomly sample initial conditions and a physical time step k
+        idx = torch.randperm(n_samples)[:batch_size]
+        k = torch.randint(0, nt - 1, (batch_size,))
         
-        t = torch.rand(batch_size, 1, device=device) * (1.0 - dt_upwind) + dt_upwind
-        xt = (1 - t) * x0_batch + t * x1_batch
+        # p0 is time k, p1 is time k+1
+        x0_batch = full_data[idx, k, :].to(device)
+        x1_batch = full_data[idx, k + 1, :].to(device)
+        
+        # Generative pseudo-time tau
+        tau = torch.rand(batch_size, 1, device=device) * (1.0 - dt_upwind) + dt_upwind
+        xt = (1 - tau) * x0_batch + tau * x1_batch
         ut = x1_batch - x0_batch
         
-        vt = model(xt, t)
+        vt = model(xt, tau)
         loss_std = torch.mean((vt - ut) ** 2)
         
         loss_upwind = torch.tensor(0.0, device=device)
         if lambda_upwind > 0:
             x_upstream = xt - vt.detach() * dt_upwind
-            t_upstream = t - dt_upwind
-            vt_upstream = model(x_upstream, t_upstream)
+            tau_upstream = tau - dt_upwind
+            vt_upstream = model(x_upstream, tau_upstream)
             upwind_diff = vt - vt_upstream
             loss_upwind = lambda_upwind * torch.mean(upwind_diff ** 2)
             
@@ -167,17 +174,17 @@ def train_physics_cfm(u0, uT, device, n_epochs=5000, batch_size=256, lambda_upwi
 
 # --- 4. Solvers ---
 @torch.no_grad()
-def generate_trajectory(model, x0, device, steps=15, inference_noise=0.0, upwind_alpha=0.0):
+def generate_step(model, x0, device, steps=5, inference_noise=0.0, upwind_alpha=0.0):
+    # Generates a single physical step (from frame k to frame k+1)
     model.eval()
     dt = 1.0 / steps
-    x = x0.clone().to(device)
-    trajectories = [x.clone()]
+    x = x0.clone()
     v_prev = None
     epsilon = 1e-6
     
     for i in range(steps):
-        t = torch.tensor([[i * dt]], dtype=torch.float32, device=device)
-        v_raw = model(x, t)
+        tau = torch.tensor([[i * dt]], dtype=torch.float32, device=device)
+        v_raw = model(x, tau)
         
         if inference_noise > 0:
             v_raw += torch.randn_like(v_raw) * inference_noise
@@ -192,9 +199,23 @@ def generate_trajectory(model, x0, device, steps=15, inference_noise=0.0, upwind
             
         x = x + v_tilde * dt
         v_prev = v_tilde.clone()
-        trajectories.append(x.clone())
         
-    return torch.stack(trajectories).cpu()
+    return x
+
+@torch.no_grad()
+def generate_video(model, u0_test, nt, device, steps_per_frame=5, inference_noise=0.0, upwind_alpha=0.0):
+    # Autoregressively generates the full spatiotemporal video
+    video = [u0_test.cpu()]
+    curr_frame = u0_test.to(device)
+    
+    for _ in range(nt - 1):
+        next_frame = generate_step(model, curr_frame, device, steps=steps_per_frame, 
+                                   inference_noise=inference_noise, upwind_alpha=upwind_alpha)
+        video.append(next_frame.cpu())
+        curr_frame = next_frame
+        
+    # Stack along time axis (batch, time, space)
+    return torch.stack(video, dim=1)
 
 # --- 5. Execution ---
 if __name__ == "__main__":
@@ -208,21 +229,18 @@ if __name__ == "__main__":
     set_seed(42)
     full_data = get_burgers_data(n_samples=5000, nx=NX, nt=NT, nu=0.02)
     
-    u0_train = full_data[:, 0, :]
-    uT_train = full_data[:, -1, :]
-    
     print("\nTraining STANDARD Model (lambda=0)...", flush=True)
     set_seed(42)
-    model_std = train_physics_cfm(u0_train, uT_train, device, n_epochs=5000, lambda_upwind=0.0)
+    model_std = train_autoregressive_cfm(full_data, device, n_epochs=5000, lambda_upwind=0.0)
     
     print("\nTraining UPWIND-REGULARIZED Model (lambda=2.0)...", flush=True)
     set_seed(42)
-    model_upwind = train_physics_cfm(u0_train, uT_train, device, n_epochs=5000, lambda_upwind=2.0)
+    model_upwind = train_autoregressive_cfm(full_data, device, n_epochs=5000, lambda_upwind=2.0)
     
-    print("\nGenerating Physical Trajectories from Unseen Test Initial Conditions...", flush=True)
+    print("\nGenerating Physical Trajectories (Autoregressive)...", flush=True)
     n_eval = 4
     inf_noise = 0.5
-    steps = 15
+    steps_per_frame = 5 # Small number of generative steps between each physical frame
     
     set_seed(123) 
     test_data = get_burgers_data(n_samples=n_eval, nx=NX, nt=NT, nu=0.02)
@@ -230,10 +248,10 @@ if __name__ == "__main__":
     true_traj = test_data 
     
     set_seed(42)
-    traj_std = generate_trajectory(model_std, u0_test, device, steps=steps, inference_noise=inf_noise, upwind_alpha=0.0)
+    traj_std = generate_video(model_std, u0_test, nt=NT, device=device, steps_per_frame=steps_per_frame, inference_noise=inf_noise, upwind_alpha=0.0)
     
     set_seed(42)
-    traj_upw = generate_trajectory(model_upwind, u0_test, device, steps=steps, inference_noise=inf_noise, upwind_alpha=0.8)
+    traj_upw = generate_video(model_upwind, u0_test, nt=NT, device=device, steps_per_frame=steps_per_frame, inference_noise=inf_noise, upwind_alpha=0.8)
     
     # Plotting
     fig, axes = plt.subplots(3, n_eval, figsize=(16, 9))
@@ -242,21 +260,21 @@ if __name__ == "__main__":
         im_true = true_traj[i].numpy()
         axes[0, i].imshow(im_true, aspect='auto', origin='lower', cmap='RdBu_r', extent=[0, 2*np.pi, 0, 1])
         axes[0, i].set_title(f"Test Condition {i+1}\nTrue Physics (PDE)")
-        if i == 0: axes[0, i].set_ylabel("Time t")
+        if i == 0: axes[0, i].set_ylabel("Physical Time (t)")
         
-        im_std = traj_std[:, i, :].numpy()
+        im_std = traj_std[i].numpy()
         axes[1, i].imshow(im_std, aspect='auto', origin='lower', cmap='RdBu_r', extent=[0, 2*np.pi, 0, 1])
-        axes[1, i].set_title(f"Standard CFM")
-        if i == 0: axes[1, i].set_ylabel(r"Generative $\tau$")
+        axes[1, i].set_title(f"Standard CFM (Autoregressive)")
+        if i == 0: axes[1, i].set_ylabel("Physical Time (t)")
         
-        im_upw = traj_upw[:, i, :].numpy()
+        im_upw = traj_upw[i].numpy()
         axes[2, i].imshow(im_upw, aspect='auto', origin='lower', cmap='RdBu_r', extent=[0, 2*np.pi, 0, 1])
-        axes[2, i].set_title(f"Upwind-CFM")
-        if i == 0: axes[2, i].set_ylabel(r"Generative $\tau$")
+        axes[2, i].set_title(f"Upwind-CFM (Autoregressive)")
+        if i == 0: axes[2, i].set_ylabel("Physical Time (t)")
 
     plt.tight_layout()
     out_dir = "/mnt/data"
     os.makedirs(out_dir, exist_ok=True)
-    out_file = os.path.join(out_dir, "burgers_unet_comparison.png")
+    out_file = os.path.join(out_dir, "burgers_autoregressive_comparison.png")
     plt.savefig(out_file, dpi=150)
     print(f"\nSaved physics flow comparison plot to '{out_file}'", flush=True)
